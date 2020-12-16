@@ -62,7 +62,7 @@ class YOLO(object):
         # 加快模型训练的效率
         print('Loading weights into state dict...')
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        state_dict = torch.load(self.model_path, map_location=device)
+        state_dict = torch.load(self.model_path, map_location=device) # 路径文件加载
         self.net.load_state_dict(state_dict)
         self.net = self.net.eval()
 
@@ -72,7 +72,7 @@ class YOLO(object):
             self.net = self.net.cuda()
 
         self.yolo_decodes = []
-        for i in range(3):
+        for i in range(3): # 经过三次循环对特征层解码（先验框）
             self.yolo_decodes.append(DecodeBox(self.config["yolo"]["anchors"][i], self.config["yolo"]["classes"],  (self.model_image_size[1], self.model_image_size[0])))
 
 
@@ -107,7 +107,7 @@ class YOLO(object):
         with torch.no_grad():
             outputs = self.net(images)
             output_list = []
-            for i in range(3):
+            for i in range(3): # 经过三次循环对特征层解码（先验框）
                 output_list.append(self.yolo_decodes[i](outputs[i]))
             output = torch.cat(output_list, 1)
             batch_detections = non_max_suppression(output, self.config["yolo"]["classes"],

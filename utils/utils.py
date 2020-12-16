@@ -10,32 +10,43 @@ from torch.autograd import Variable
 from torchvision.ops import nms
 from PIL import Image, ImageDraw, ImageFont
 
+# 先验框调整
 class DecodeBox(nn.Module):
-    def __init__(self, anchors, num_classes, img_size):
+    def __init__(self, anchors, num_classes, img_size): # 参数
         super(DecodeBox, self).__init__()
-        self.anchors = anchors
+        self.anchors = anchors # 
         self.num_anchors = len(anchors)
         self.num_classes = num_classes
         self.bbox_attrs = 5 + num_classes
         self.img_size = img_size
 
     def forward(self, input):
+        # input为 (batchsize, 3*(1+4+num_classes), 13, 13)
+        # 一共多少张图片
         batch_size = input.size(0)
+
+        # 13，13
         input_height = input.size(2)
         input_width = input.size(3)
 
         # 计算步长
+        # 每一个特征点对应原来的图片上多少个像素点
+        # 如果特征层为13x13的话， 一个特征点就对应原来的图片上的32个像素点
+        # 416/13 = 32
         stride_h = self.img_size[1] / input_height
         stride_w = self.img_size[0] / input_width
         # 归一到特征层上
+        # 把先验框的尺寸调整 成特征层大小的样式
+        # 计算出先验框在特征层上对应的宽高
         scaled_anchors = [(anchor_width / stride_w, anchor_height / stride_h) for anchor_width, anchor_height in self.anchors]
 
-        # 对预测结果进行resize
+        # 对预测结果进行reshape
+        # batchsize, 3*(1+4+num_classes, 13, 13)  -> batchsize, 3, 13, 13, (1+4+num_classes)
         prediction = input.view(batch_size, self.num_anchors,
                                 self.bbox_attrs, input_height, input_width).permute(0, 1, 3, 4, 2).contiguous()
 
-        # 先验框的中心位置的调整参数
-        x = torch.sigmoid(prediction[..., 0])  
+        # 先验框的中心位置的调整参数（simoid只能在右下角一个网格内进行调整了）
+        x = torch.sigmoid(prediction[..., 0])  # 最后一个维度的0列
         y = torch.sigmoid(prediction[..., 1])
         # 先验框的宽高调整参数
         w = prediction[..., 2]  # Width
@@ -49,7 +60,8 @@ class DecodeBox(nn.Module):
         FloatTensor = torch.cuda.FloatTensor if x.is_cuda else torch.FloatTensor
         LongTensor = torch.cuda.LongTensor if x.is_cuda else torch.LongTensor
 
-        # 生成网格，先验框中心，网格左上角 batch_size,3,13,13
+        # =============生成先验框====================
+        # 生成网格，先验框中心，网格左上角 batch_size,3,13,13（13x13网格上，每个网格点上会有3个先验框）
         grid_x = torch.linspace(0, input_width - 1, input_width).repeat(input_height, 1).repeat(
             batch_size * self.num_anchors, 1, 1).view(x.shape).type(FloatTensor)
         grid_y = torch.linspace(0, input_height - 1, input_height).repeat(input_width, 1).t().repeat(
@@ -61,11 +73,11 @@ class DecodeBox(nn.Module):
         anchor_w = anchor_w.repeat(batch_size, 1).repeat(1, 1, input_height * input_width).view(w.shape)
         anchor_h = anchor_h.repeat(batch_size, 1).repeat(1, 1, input_height * input_width).view(h.shape)
 
-        # 计算调整后的先验框中心与宽高
+        # 计算调整后的先验框中心与宽高（根据先验框的宽高和宽高调整参数）
         pred_boxes = FloatTensor(prediction[..., :4].shape)
-        pred_boxes[..., 0] = x.data + grid_x
+        pred_boxes[..., 0] = x.data + grid_x # 网格的左上角是先验框的中心
         pred_boxes[..., 1] = y.data + grid_y
-        pred_boxes[..., 2] = torch.exp(w.data) * anchor_w
+        pred_boxes[..., 2] = torch.exp(w.data) * anchor_w # 宽高的调整参数取个指数
         pred_boxes[..., 3] = torch.exp(h.data) * anchor_h
 
         # 用于将输出调整为相对于416x416的大小
