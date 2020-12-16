@@ -1,10 +1,10 @@
 import torch
-import torch.nn as nn
+import torch.nn as nn  # torch.nn重命名为nn
 import math
 from collections import OrderedDict
 
 # 基本的darknet块
-class BasicBlock(nn.Module):
+class BasicBlock(nn.Module):  # 在_make_layer函数中被调用
     def __init__(self, inplanes, planes):
         super(BasicBlock, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes[0], kernel_size=1,
@@ -33,14 +33,14 @@ class BasicBlock(nn.Module):
 
 
 class DarkNet(nn.Module):
-    def __init__(self, layers):
+    def __init__(self, layers): # layers=[1, 2, 8, 8, 4]
         super(DarkNet, self).__init__()
-        self.inplanes = 32
+        self.inplanes = 32   # 32通道卷积
         self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(self.inplanes)
         self.relu1 = nn.LeakyReLU(0.1)
 
-        self.layer1 = self._make_layer([32, 64], layers[0])
+        self.layer1 = self._make_layer([32, 64], layers[0]) # _make_layer就是残差块  32，63对应Channels
         self.layer2 = self._make_layer([64, 128], layers[1])
         self.layer3 = self._make_layer([128, 256], layers[2])
         self.layer4 = self._make_layer([256, 512], layers[3])
@@ -67,14 +67,16 @@ class DarkNet(nn.Module):
         # 加入darknet模块   
         self.inplanes = planes[1]
         for i in range(0, blocks):
-            layers.append(("residual_{}".format(i), BasicBlock(self.inplanes, planes)))
+            layers.append(("residual_{}".format(i), BasicBlock(self.inplanes, planes)))  # 调用BasicBlock基础模块
         return nn.Sequential(OrderedDict(layers))
 
     def forward(self, x):
+        # 卷积
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu1(x)
 
+        # 残差
         x = self.layer1(x)
         x = self.layer2(x)
         out3 = self.layer3(x)
@@ -84,7 +86,7 @@ class DarkNet(nn.Module):
         return out3, out4, out5
 
 def darknet53(pretrained, **kwargs):
-    model = DarkNet([1, 2, 8, 8, 4])
+    model = DarkNet([1, 2, 8, 8, 4]) # 参数数组对应layers
     if pretrained:
         if isinstance(pretrained, str):
             model.load_state_dict(torch.load(pretrained))
