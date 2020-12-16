@@ -1,3 +1,7 @@
+''' 
+Step1: 采用Darknet-53作为主干特征提取网络
+
+ '''
 import torch
 import torch.nn as nn  # torch.nn重命名为nn
 import math
