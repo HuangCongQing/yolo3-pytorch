@@ -86,6 +86,7 @@ class DecodeBox(nn.Module):
                             conf.view(batch_size, -1, 1), pred_cls.view(batch_size, -1, self.num_classes)), -1)
         return output.data
         
+# 添加灰条
 def letterbox_image(image, size):
     iw, ih = image.size
     w, h = size
@@ -149,7 +150,7 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
 
     return iou
 
-
+ # 非极大值抑制（找出得分最高的一个框框）
 def non_max_suppression(prediction, num_classes, conf_thres=0.5, nms_thres=0.4):
     # 求左上角和右下角
     box_corner = prediction.new(prediction.shape)
@@ -160,7 +161,7 @@ def non_max_suppression(prediction, num_classes, conf_thres=0.5, nms_thres=0.4):
     prediction[:, :, :4] = box_corner[:, :, :4]
 
     output = [None for _ in range(len(prediction))]
-    for image_i, image_pred in enumerate(prediction):
+    for image_i, image_pred in enumerate(prediction): # 几张图片循环几次
         # 获得种类及其置信度
         class_conf, class_pred = torch.max(image_pred[:, 5:5 + num_classes], 1, keepdim=True)
 
@@ -181,7 +182,7 @@ def non_max_suppression(prediction, num_classes, conf_thres=0.5, nms_thres=0.4):
         if prediction.is_cuda:
             unique_labels = unique_labels.cuda()
             detections = detections.cuda()
-
+        # 对种类进行遍历，完成非极大值抑制的操作
         for c in unique_labels:
             # 获得某一类初步筛选后全部的预测结果
             detections_class = detections[detections[:, -1] == c]
@@ -207,7 +208,7 @@ def non_max_suppression(prediction, num_classes, conf_thres=0.5, nms_thres=0.4):
             #     if len(detections_class) == 1:
             #         break
             #     ious = bbox_iou(max_detections[-1], detections_class[1:])
-            #     detections_class = detections_class[1:][ious < nms_thres]
+            #     detections_class = detections_class[1:][ious < nms_thres] # 小于判断
             # # 堆叠
             # max_detections = torch.cat(max_detections).data
             

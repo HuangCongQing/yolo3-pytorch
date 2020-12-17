@@ -86,35 +86,35 @@ class YOLO(object):
                 self.colors))
 
     #---------------------------------------------------#
-    #   检测图片
+    #   检测图片  predict.py中引用此函数
     #---------------------------------------------------#
     def detect_image(self, image):
         image_shape = np.array(np.shape(image)[0:2])
 
-        crop_img = np.array(letterbox_image(image, (self.model_image_size[1],self.model_image_size[0])))
+        crop_img = np.array(letterbox_image(image, (self.model_image_size[1],self.model_image_size[0]))) # letterbox_image？？？
         photo = np.array(crop_img,dtype = np.float32)
-        photo /= 255.0
-        photo = np.transpose(photo, (2, 0, 1))
+        photo /= 255.0 # 归一化操作
+        photo = np.transpose(photo, (2, 0, 1)) # 通道维度调整（pytorch），有利于GPU处理
         photo = photo.astype(np.float32)
-        images = []
-        images.append(photo)
+        images = [] # 扩充一个维度
+        images.append(photo)  # 扩充一个维度
 
         images = np.asarray(images)
-        images = torch.from_numpy(images)
+        images = torch.from_numpy(images) # numpy转化为tensor
         if self.cuda:
             images = images.cuda()
         
         with torch.no_grad():
-            outputs = self.net(images)
-            output_list = []
+            outputs = self.net(images) # 图片传入网络，得到网络的预测结果
+            output_list = [] # 三个size的预测结果
             for i in range(3): # 经过三次循环对特征层解码（先验框）
-                output_list.append(self.yolo_decodes[i](outputs[i]))
+                output_list.append(self.yolo_decodes[i](outputs[i])) # yolo_decodes 先验框调整的过程
             output = torch.cat(output_list, 1)
-            batch_detections = non_max_suppression(output, self.config["yolo"]["classes"],
+            batch_detections = non_max_suppression(output, self.config["yolo"]["classes"], # 非极大值抑制
                                                     conf_thres=self.confidence,
                                                     nms_thres=self.iou)
         try :
-            batch_detections = batch_detections[0].cpu().numpy()
+            batch_detections = batch_detections[0].cpu().numpy() # 判断图片是否还有框
         except:
             return image
         top_index = batch_detections[:,4]*batch_detections[:,5] > self.confidence
@@ -123,18 +123,19 @@ class YOLO(object):
         top_bboxes = np.array(batch_detections[top_index,:4])
         top_xmin, top_ymin, top_xmax, top_ymax = np.expand_dims(top_bboxes[:,0],-1),np.expand_dims(top_bboxes[:,1],-1),np.expand_dims(top_bboxes[:,2],-1),np.expand_dims(top_bboxes[:,3],-1)
 
-        # 去掉灰条
+        # 去掉灰条（基于原图的坐标绘制框）
         boxes = yolo_correct_boxes(top_ymin,top_xmin,top_ymax,top_xmax,np.array([self.model_image_size[0],self.model_image_size[1]]),image_shape)
 
-        font = ImageFont.truetype(font='model_data/simhei.ttf',size=np.floor(3e-2 * np.shape(image)[1] + 0.5).astype('int32'))
+        font = ImageFont.truetype(font='model_data/simhei.ttf',size=np.floor(3e-2 * np.shape(image)[1] + 0.5).astype('int32')) # 定义字体
 
-        thickness = (np.shape(image)[0] + np.shape(image)[1]) // self.model_image_size[0]
+        thickness = (np.shape(image)[0] + np.shape(image)[1]) // self.model_image_size[0] # 框的宽度怎么样子的
 
+        # 画图的代码
         for i, c in enumerate(top_label):
-            predicted_class = self.class_names[c]
-            score = top_conf[i]
+            predicted_class = self.class_names[c] # 取出类的名称
+            score = top_conf[i]  # 取出类的得分
 
-            top, left, bottom, right = boxes[i]
+            top, left, bottom, right = boxes[i] # # 取出类的位置
             top = top - 5
             left = left - 5
             bottom = bottom + 5
@@ -158,13 +159,13 @@ class YOLO(object):
                 text_origin = np.array([left, top + 1])
 
             for i in range(thickness):
-                draw.rectangle(
+                draw.rectangle( # 绘画矩形
                     [left + i, top + i, right - i, bottom - i],
                     outline=self.colors[self.class_names.index(predicted_class)])
             draw.rectangle(
                 [tuple(text_origin), tuple(text_origin + label_size)],
                 fill=self.colors[self.class_names.index(predicted_class)])
-            draw.text(text_origin, str(label,'UTF-8'), fill=(0, 0, 0), font=font)
+            draw.text(text_origin, str(label,'UTF-8'), fill=(0, 0, 0), font=font) # 写字
             del draw
         return image
 
