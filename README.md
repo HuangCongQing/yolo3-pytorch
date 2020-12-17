@@ -24,7 +24,7 @@ torch == 1.2.0
 
 ### 文件下载
 
-训练所需的yolo_weights.pth可以在百度云下载。
+训练所需的yolo_weights.pth(文件大小:236.6M)可以在百度云下载。
 链接: https://pan.baidu.com/s/1ncREw6Na9ycZptdxiVMApw
 提取码: appk
 
