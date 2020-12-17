@@ -104,7 +104,7 @@ if __name__ == "__main__":
     Use_Data_Loader = True
 
     #-------------------------------------------#
-    #   权值文件的下载请看README
+    #   权值文件的下载请看README(训练好的yolov3 权重  基于coco数据集)
     #-------------------------------------------#
     print('Loading weights into state dict...')
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
