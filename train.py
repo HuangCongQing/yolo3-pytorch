@@ -15,40 +15,42 @@ from torch.utils.data import DataLoader
 from utils.dataloader import yolo_dataset_collate, YoloDataset
 from nets.yolo_training import YOLOLoss,Generator
 from nets.yolo3 import YoloBody
-from tqdm import tqdm
+from tqdm import tqdm # 可扩展的Python进度条
 
 def get_lr(optimizer):
     for param_group in optimizer.param_groups:
         return param_group['lr']
-        
+
+# 训练函数（各种print输出信息也在里面）
 def fit_ont_epoch(net,yolo_losses,epoch,epoch_size,epoch_size_val,gen,genval,Epoch,cuda):
+    # 两个loss
     total_loss = 0
     val_loss = 0
-    start_time = time.time()
+    start_time = time.time() # 训练开始时间
     with tqdm(total=epoch_size,desc=f'Epoch {epoch + 1}/{Epoch}',postfix=dict,mininterval=0.3) as pbar:
-        for iteration, batch in enumerate(gen):
+        for iteration, batch in enumerate(gen): # 遍历数据gen
             if iteration >= epoch_size:
                 break
-            images, targets = batch[0], batch[1]
+            images, targets = batch[0], batch[1] # 取出数据
             with torch.no_grad():
                 if cuda:
                     images = Variable(torch.from_numpy(images).type(torch.FloatTensor)).cuda()
                     targets = [Variable(torch.from_numpy(ann).type(torch.FloatTensor)) for ann in targets]
-                else:
+                else: # 多个.cuda()
                     images = Variable(torch.from_numpy(images).type(torch.FloatTensor))
                     targets = [Variable(torch.from_numpy(ann).type(torch.FloatTensor)) for ann in targets]
-            optimizer.zero_grad()
-            outputs = net(images)
+            optimizer.zero_grad() # 梯度清零
+            outputs = net(images) # 获取到的图片传入到YOLOv3网络中，获得预测结果======================================
             losses = []
             for i in range(3):
-                loss_item = yolo_losses[i](outputs[i], targets)
+                loss_item = yolo_losses[i](outputs[i], targets)  # 预测值和目标值计算loss
                 losses.append(loss_item[0])
-            loss = sum(losses)
-            loss.backward()
-            optimizer.step()
+            loss = sum(losses) # losses相加
+            loss.backward() # 反向梯度计算
+            optimizer.step() # 优化
 
             total_loss += loss
-            waste_time = time.time() - start_time
+            waste_time = time.time() - start_time # 时间
             
             pbar.set_postfix(**{'total_loss': total_loss.item() / (iteration + 1), 
                                 'lr'        : get_lr(optimizer),
@@ -57,7 +59,7 @@ def fit_ont_epoch(net,yolo_losses,epoch,epoch_size,epoch_size_val,gen,genval,Epo
 
             start_time = time.time()
     net.eval()
-    print('Start Validation')
+    print('Start Validation') # 验证集 loss的计算
     with tqdm(total=epoch_size_val, desc=f'Epoch {epoch + 1}/{Epoch}',postfix=dict,mininterval=0.3) as pbar:
         for iteration, batch in enumerate(genval):
             if iteration >= epoch_size_val:
@@ -86,7 +88,7 @@ def fit_ont_epoch(net,yolo_losses,epoch,epoch_size,epoch_size_val,gen,genval,Epo
     print('Epoch:'+ str(epoch+1) + '/' + str(Epoch))
     print('Total Loss: %.4f || Val Loss: %.4f ' % (total_loss/(epoch_size+1),val_loss/(epoch_size_val+1)))
 
-    print('Saving state, iter:', str(epoch+1))
+    print('Saving state, iter:', str(epoch+1)) # 保存模型
     torch.save(model.state_dict(), 'logs/Epoch%d-Total_Loss%.4f-Val_Loss%.4f.pth'%((epoch+1),total_loss/(epoch_size+1),val_loss/(epoch_size_val+1)))
 
 #----------------------------------------------------#
@@ -95,8 +97,8 @@ def fit_ont_epoch(net,yolo_losses,epoch,epoch_size,epoch_size_val,gen,genval,Epo
 #----------------------------------------------------#
 if __name__ == "__main__":
     # 参数初始化
-    annotation_path = '2007_train.txt'
-    model = YoloBody(Config)
+    annotation_path = '2007_train.txt' # 图片路径&对应图片框信息（xxx/jpg, 34,56,7,22,44 .. 
+    model = YoloBody(Config) # Yolo模型创建
     Cuda = True
     #-------------------------------#
     #   Dataloder的使用
@@ -106,15 +108,17 @@ if __name__ == "__main__":
     #-------------------------------------------#
     #   权值文件的下载请看README(训练好的yolov3 权重  基于coco数据集)
     #-------------------------------------------#
+    # 加快模型训练的速度
     print('Loading weights into state dict...')
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') # GPU计算
     model_dict = model.state_dict()
-    pretrained_dict = torch.load("model_data/yolo_weights.pth", map_location=device)
+    pretrained_dict = torch.load("model_data/yolo_weights.pth", map_location=device) # 载入模型训练好的权重
     pretrained_dict = {k: v for k, v in pretrained_dict.items() if np.shape(model_dict[k]) ==  np.shape(v)}
     model_dict.update(pretrained_dict)
     model.load_state_dict(model_dict)
     print('Finished!')
-
+    
+    # 模型cuda参数设置
     net = model.train()
 
     if Cuda:
@@ -124,13 +128,13 @@ if __name__ == "__main__":
 
     # 建立loss函数
     yolo_losses = []
-    for i in range(3):
+    for i in range(3): # loss函数分别针对3个有效特征层的
         yolo_losses.append(YOLOLoss(np.reshape(Config["yolo"]["anchors"],[-1,2]),
                                     Config["yolo"]["classes"], (Config["img_w"], Config["img_h"]), Cuda))
 
     # 0.1用于验证，0.9用于训练
     val_split = 0.1
-    with open(annotation_path) as f:
+    with open(annotation_path) as f: # 打开文件
         lines = f.readlines()
     np.random.seed(10101)
     np.random.shuffle(lines)
@@ -150,26 +154,27 @@ if __name__ == "__main__":
     if True:
         # 最开始使用1e-3的学习率可以收敛的更快
         lr = 1e-3
-        Batch_size = 8
+        Batch_size = 8 # 一次送入8行数据
         Init_Epoch = 0
-        Freeze_Epoch = 50
+        Freeze_Epoch = 50 #  Freeze_Epoch为冻结训练的世代
         
-        optimizer = optim.Adam(net.parameters(),lr)
-        lr_scheduler = optim.lr_scheduler.StepLR(optimizer,step_size=1,gamma=0.95)
+        optimizer = optim.Adam(net.parameters(),lr) # 定义优化器
+        lr_scheduler = optim.lr_scheduler.StepLR(optimizer,step_size=1,gamma=0.95) # 定义模型学习率下降的方式
 
         if Use_Data_Loader:
+            # 生成训练数据和验证数据
             train_dataset = YoloDataset(lines[:num_train], (Config["img_h"], Config["img_w"]))
             val_dataset = YoloDataset(lines[num_train:], (Config["img_h"], Config["img_w"]))
             gen = DataLoader(train_dataset, shuffle=True, batch_size=Batch_size, num_workers=4, pin_memory=True,
                                     drop_last=True, collate_fn=yolo_dataset_collate)
             gen_val = DataLoader(val_dataset, shuffle=True, batch_size=Batch_size, num_workers=4,pin_memory=True, 
                                     drop_last=True, collate_fn=yolo_dataset_collate)
-        else:
+        else: # 生成数据，传入训练函数fit_ont_epoch
             gen = Generator(Batch_size, lines[:num_train],
                              (Config["img_h"], Config["img_w"])).generate()
             gen_val = Generator(Batch_size, lines[num_train:],
                              (Config["img_h"], Config["img_w"])).generate()
-                        
+        # 定义步长
         epoch_size = num_train//Batch_size
         epoch_size_val = num_val//Batch_size
         #------------------------------------#
@@ -178,6 +183,7 @@ if __name__ == "__main__":
         for param in model.backbone.parameters():
             param.requires_grad = False
 
+        # 开始训练
         for epoch in range(Init_Epoch,Freeze_Epoch):
             fit_ont_epoch(net,yolo_losses,epoch,epoch_size,epoch_size_val,gen,gen_val,Freeze_Epoch,Cuda)
             lr_scheduler.step()
@@ -188,6 +194,7 @@ if __name__ == "__main__":
         Freeze_Epoch = 50
         Unfreeze_Epoch = 100
 
+        # 定义优化器
         optimizer = optim.Adam(net.parameters(),lr)
         lr_scheduler = optim.lr_scheduler.StepLR(optimizer,step_size=1,gamma=0.95)
         if Use_Data_Loader:
@@ -198,6 +205,7 @@ if __name__ == "__main__":
             gen_val = DataLoader(val_dataset, shuffle=True, batch_size=Batch_size, num_workers=4,pin_memory=True, 
                                     drop_last=True, collate_fn=yolo_dataset_collate)
         else:
+            # 生成器
             gen = Generator(Batch_size, lines[:num_train],
                              (Config["img_h"], Config["img_w"])).generate()
             gen_val = Generator(Batch_size, lines[num_train:],
@@ -211,6 +219,7 @@ if __name__ == "__main__":
         for param in model.backbone.parameters():
             param.requires_grad = True
 
+        # 训练
         for epoch in range(Freeze_Epoch,Unfreeze_Epoch):
             fit_ont_epoch(net,yolo_losses,epoch,epoch_size,epoch_size_val,gen,gen_val,Unfreeze_Epoch,Cuda)
             lr_scheduler.step()

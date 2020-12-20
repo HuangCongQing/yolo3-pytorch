@@ -9,6 +9,7 @@ from matplotlib.colors import rgb_to_hsv, hsv_to_rgb
 from PIL import Image
 from utils.utils import bbox_iou
 
+# 计算重合程度 
 def jaccard(_box_a, _box_b):
     b1_x1, b1_x2 = _box_a[:, 0] - _box_a[:, 2] / 2, _box_a[:, 0] + _box_a[:, 2] / 2
     b1_y1, b1_y2 = _box_a[:, 1] - _box_a[:, 3] / 2, _box_a[:, 1] + _box_a[:, 3] / 2
@@ -52,6 +53,7 @@ def BCELoss(pred,target):
     output = -target * torch.log(pred) - (1.0 - target) * torch.log(1.0 - pred)
     return output
 
+# loss计算过程
 class YOLOLoss(nn.Module):
     def __init__(self, anchors, num_classes, img_size, cuda):
         super(YOLOLoss, self).__init__()
@@ -91,7 +93,7 @@ class YOLOLoss(nn.Module):
         
         # bs,3*(5+num_classes),13,13 -> bs,3,13,13,(5+num_classes)
         prediction = input.view(bs, int(self.num_anchors/3),
-                                self.bbox_attrs, in_h, in_w).permute(0, 1, 3, 4, 2).contiguous()
+                                self.bbox_attrs, in_h, in_w).permute(0, 1, 3, 4, 2).contiguous() # permute维度转换
         
         # 对prediction预测进行调整
         x = torch.sigmoid(prediction[..., 0])  # Center x
@@ -105,9 +107,9 @@ class YOLOLoss(nn.Module):
         mask, noobj_mask, tx, ty, tw, th, tconf, tcls, box_loss_scale_x, box_loss_scale_y =\
                                                                             self.get_target(targets, scaled_anchors,
                                                                                             in_w, in_h,
-                                                                                            self.ignore_threshold)
+                                                                                            self.ignore_threshold)  # get_target函数
 
-        noobj_mask = self.get_ignore(prediction, targets, scaled_anchors, in_w, in_h, noobj_mask)
+        noobj_mask = self.get_ignore(prediction, targets, scaled_anchors, in_w, in_h, noobj_mask) # 忽略部分预测框
         if self.cuda:
             box_loss_scale_x = (box_loss_scale_x).cuda()
             box_loss_scale_y = (box_loss_scale_y).cuda()
@@ -127,6 +129,7 @@ class YOLOLoss(nn.Module):
                     
         loss_cls = torch.sum(BCELoss(pred_cls[mask == 1], tcls[mask == 1])/bs)
 
+        # 预测框相加就是最终的loss
         loss = loss_x * self.lambda_xy + loss_y * self.lambda_xy + \
                 loss_w * self.lambda_wh + loss_h * self.lambda_wh + \
                 loss_conf * self.lambda_conf + loss_cls * self.lambda_cls
@@ -136,6 +139,7 @@ class YOLOLoss(nn.Module):
         return loss, loss_x.item(), loss_y.item(), loss_w.item(), \
                 loss_h.item(), loss_conf.item(), loss_cls.item()
 
+    # 
     def get_target(self, target, anchors, in_w, in_h, ignore_threshold):
         # 计算一共有多少张图片
         bs = len(target)
@@ -165,7 +169,7 @@ class YOLOLoss(nn.Module):
             gws = target[b][:, 2:3] * in_w
             ghs = target[b][:, 3:4] * in_h
 
-            # 计算出属于哪个网格
+            # 计算出属于哪个网格（int获取左上角网格的坐标）
             gis = torch.floor(gxs)
             gjs = torch.floor(gys)
             
@@ -174,13 +178,13 @@ class YOLOLoss(nn.Module):
             
             # 计算出所有先验框的位置
             anchor_shapes = torch.FloatTensor(torch.cat((torch.zeros((self.num_anchors, 2)), torch.FloatTensor(anchors)), 1))
-            # 计算重合程度
-            anch_ious = jaccard(gt_box, anchor_shapes)
+            # 计算重合程度 （真实框和9个先验框对比）=====================================
+            anch_ious = jaccard(gt_box, anchor_shapes) 
 
-            # Find the best matching anchor box
+            # 找出重合度最高的 Find the best matching anchor box
             best_ns = torch.argmax(anch_ious,dim=-1)
             for i, best_n in enumerate(best_ns):
-                if best_n not in anchor_index:
+                if best_n not in anchor_index: # 判断是否属于这个特征层（ 每个特征层对应3个先验框）
                     continue
                 # Masks
                 gi = gis[i].long()
@@ -189,7 +193,7 @@ class YOLOLoss(nn.Module):
                 gy = gys[i]
                 gw = gws[i]
                 gh = ghs[i]
-                # Masks
+                # Masks  编码操作（）
                 if (gj < in_h) and (gi < in_w):
                     best_n = best_n - subtract_index
                     # 判定哪些先验框内部真实的存在物体
@@ -215,6 +219,7 @@ class YOLOLoss(nn.Module):
 
         return mask, noobj_mask, tx, ty, tw, th, tconf, tcls, box_loss_scale_x, box_loss_scale_y
 
+    # 框框忽略的思路（预测框和真实框的重合程度小就忽略）
     def get_ignore(self,prediction,target,scaled_anchors,in_w, in_h,noobj_mask):
         bs = len(target)
         anchor_index = [[0,1,2],[3,4,5],[6,7,8]][self.feature_length.index(in_w)]
@@ -271,7 +276,7 @@ class YOLOLoss(nn.Module):
 def rand(a=0, b=1):
     return np.random.rand()*(b-a) + a
 
-
+# 训练数据生成
 class Generator(object):
     def __init__(self,batch_size,
                  train_lines, image_size,
@@ -281,7 +286,8 @@ class Generator(object):
         self.train_lines = train_lines
         self.train_batches = len(train_lines)
         self.image_size = image_size
-        
+    
+    # 数据增强（平移，扭曲，色域变换）训练模型更有鲁棒性
     def get_random_data(self, annotation_line, input_shape, jitter=.3, hue=.1, sat=1.5, val=1.5):
         '''r实时数据增强的随机预处理'''
         line = annotation_line.split()
@@ -357,8 +363,9 @@ class Generator(object):
             inputs = []
             targets = []
             for annotation_line in lines:  
-                img,y=self.get_random_data(annotation_line,self.image_size[0:2])
-
+                img,y=self.get_random_data(annotation_line,self.image_size[0:2]) # 数据增强
+                # img图片   y目标框
+                # 框框归一化
                 if len(y)!=0:
                     boxes = np.array(y[:,:4],dtype=np.float32)
                     boxes[:,0] = boxes[:,0]/self.image_size[1]
@@ -366,6 +373,7 @@ class Generator(object):
                     boxes[:,2] = boxes[:,2]/self.image_size[1]
                     boxes[:,3] = boxes[:,3]/self.image_size[0]
 
+                    # 转变格式为中心+宽高
                     boxes = np.maximum(np.minimum(boxes,1),0)
                     boxes[:,2] = boxes[:,2] - boxes[:,0]
                     boxes[:,3] = boxes[:,3] - boxes[:,1]
@@ -375,12 +383,12 @@ class Generator(object):
                     y = np.concatenate([boxes,y[:,-1:]],axis=-1)
                 img = np.array(img,dtype = np.float32)
 
-                inputs.append(np.transpose(img/255.0,(2,0,1)))                  
+                inputs.append(np.transpose(img/255.0,(2,0,1)))  # img/255.0  归一化     ， (2,0,1)通道改变
                 targets.append(np.array(y,dtype = np.float32))
                 if len(targets) == self.batch_size:
                     tmp_inp = np.array(inputs)
                     tmp_targets = targets
                     inputs = []
                     targets = []
-                    yield tmp_inp, tmp_targets
+                    yield tmp_inp, tmp_targets # 返回图片和对应的框
 
